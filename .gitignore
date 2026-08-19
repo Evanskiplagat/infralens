@@ -1,0 +1,28 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.DS_Store
+Thumbs.db
+.env
+.env.local
+.env.*.local
+
+# Go
+bin/
+*.test
+*.out
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# IDE
+.idea/
+.vscode/
