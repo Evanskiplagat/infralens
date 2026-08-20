@@ -9,11 +9,7 @@ describe("App", () => {
     expect(
       screen.getByRole("heading", { name: "InfraLens" })
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(/AWS Infrastructure Discovery & Visualization/i)
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { name: "Target Capabilities" })
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Deprecated/i)).toBeInTheDocument();
+    expect(screen.getByText(/InfraLens is now a CLI/i)).toBeInTheDocument();
   });
 });

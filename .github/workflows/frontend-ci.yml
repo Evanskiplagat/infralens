@@ -1,9 +1,13 @@
 name: frontend-ci
 
+# frontend/ is deprecated (see frontend/README.md) and no longer the
+# product surface; this workflow only runs when it actually changes.
 on:
   push:
     branches: ["main"]
+    paths: ["frontend/**"]
   pull_request:
+    paths: ["frontend/**"]
 
 jobs:
   frontend:

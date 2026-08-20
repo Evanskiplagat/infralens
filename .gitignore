@@ -13,6 +13,10 @@ bin/
 *.test
 *.out
 
+# InfraLens local scan database
+*.db
+*.db-journal
+
 # Terraform
 .terraform/
 *.tfstate
