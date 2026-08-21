@@ -20,15 +20,22 @@ func runScan(ctx context.Context, args []string) error {
 	profile := fs.String("profile", "", "AWS profile to use (defaults to standard SDK resolution)")
 	region := fs.String("region", "", "AWS region to scan (defaults to standard SDK resolution)")
 	dbPath := fs.String("db", "", "Path to the InfraLens SQLite database")
+	logLevel := fs.String("log-level", "", "Log level: debug, info, warn, or error")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	cfg, err := config.Load(config.Config{AWSProfile: *profile, AWSRegion: *region, DBPath: *dbPath})
+	cfg, logger, err := loadConfigWithLogger(config.Config{
+		AWSProfile: *profile,
+		AWSRegion:  *region,
+		DBPath:     *dbPath,
+		LogLevel:   *logLevel,
+	})
 	if err != nil {
 		return err
 	}
 
+	logger.Infof("opening scan store at %s", cfg.DBPath)
 	store, err := sqlite.Open(cfg.DBPath)
 	if err != nil {
 		return err
@@ -47,24 +54,29 @@ func runScan(ctx context.Context, args []string) error {
 	if err := store.CreateScan(ctx, scan); err != nil {
 		return fmt.Errorf("create scan record: %w", err)
 	}
+	logger.Infof("created scan %s", scan.ID)
 
 	opts := awsdiscovery.Options{Profile: cfg.AWSProfile, Region: cfg.AWSRegion}
 	discoverers := []awsdiscovery.Discoverer{awsdiscovery.EC2Discoverer{}, awsdiscovery.S3Discoverer{}}
 
+	logger.Infof("starting discovery for %d service(s)", len(discoverers))
 	snap, err := awsdiscovery.Run(ctx, opts, discoverers)
 	if err != nil {
 		_ = store.FinishScan(ctx, scan.ID, resource.ScanStatusFailed, err.Error())
+		logger.Errorf("scan %s failed during discovery: %v", scan.ID, err)
 		return fmt.Errorf("discover resources: %w", err)
 	}
 
 	accountID, err := awsdiscovery.CallerAccountID(ctx, opts)
 	if err != nil {
 		accountID = "" // account tagging is best-effort; a scan is still useful without it
+		logger.Warnf("could not resolve caller account ID: %v", err)
 	}
 
 	resources, edges := normalize.Normalize(accountID, snap)
 	g := graph.Build(resources, edges)
 	found := findings.Run(g, findings.DefaultRules())
+	logger.Infof("discovered %d resources, %d edges, %d findings", len(resources), len(edges), len(found))
 
 	if err := store.SaveResources(ctx, scan.ID, resources); err != nil {
 		return fmt.Errorf("save resources: %w", err)
@@ -78,6 +90,7 @@ func runScan(ctx context.Context, args []string) error {
 	if err := store.FinishScan(ctx, scan.ID, resource.ScanStatusComplete, ""); err != nil {
 		return fmt.Errorf("finish scan: %w", err)
 	}
+	logger.Infof("scan %s completed", scan.ID)
 
 	fmt.Printf("scan %s complete: %d resources, %d edges, %d findings\n", scan.ID, len(resources), len(edges), len(found))
 	return nil

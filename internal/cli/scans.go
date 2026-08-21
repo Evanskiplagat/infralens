@@ -14,14 +14,16 @@ import (
 func runScans(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("scans", flag.ContinueOnError)
 	dbPath := fs.String("db", "", "Path to the InfraLens SQLite database")
+	logLevel := fs.String("log-level", "", "Log level: debug, info, warn, or error")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	cfg, err := config.Load(config.Config{DBPath: *dbPath})
+	cfg, logger, err := loadConfigWithLogger(config.Config{DBPath: *dbPath, LogLevel: *logLevel})
 	if err != nil {
 		return err
 	}
+	logger.Debugf("opening scans store at %s", cfg.DBPath)
 	store, err := sqlite.Open(cfg.DBPath)
 	if err != nil {
 		return err

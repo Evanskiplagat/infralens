@@ -2,10 +2,13 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 
+	"infralens/internal/config"
 	"infralens/internal/findings"
+	"infralens/internal/logging"
 	"infralens/internal/resource"
 	"infralens/internal/storage/sqlite"
 )
@@ -53,4 +56,31 @@ func filterBySeverity(fs []findings.Finding, min findings.Severity) []findings.F
 		}
 	}
 	return out
+}
+
+func parseSeverity(raw string) (findings.Severity, error) {
+	severity := findings.Severity(raw)
+	if _, ok := severityRank[severity]; !ok {
+		return "", fmt.Errorf("unknown severity %q (want info, low, medium, or high)", raw)
+	}
+	return severity, nil
+}
+
+func shouldFailOnFindings(fs []findings.Finding, failOn findings.Severity) bool {
+	if failOn == "" {
+		return false
+	}
+	return len(filterBySeverity(fs, failOn)) > 0
+}
+
+func loadConfigWithLogger(overrides config.Config) (config.Config, logging.Logger, error) {
+	cfg, err := config.Load(overrides)
+	if err != nil {
+		return config.Config{}, logging.Logger{}, err
+	}
+	logger, err := logging.New(cfg.LogLevel)
+	if err != nil {
+		return config.Config{}, logging.Logger{}, err
+	}
+	return cfg, logger, nil
 }

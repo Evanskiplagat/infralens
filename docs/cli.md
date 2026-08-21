@@ -1,6 +1,6 @@
 # CLI Command Spec
 
-All commands accept `--db <path>` to override the SQLite database location (default `infralens.db`, or `INFRALENS_DB_PATH`/config file). Commands that talk to AWS additionally accept `--profile` and `--region`.
+All commands accept `--db <path>` to override the SQLite database location (default `infralens.db`, or `INFRALENS_DB_PATH`/config file) and `--log-level <debug|info|warn|error>` to control stderr operational logs. Commands that talk to AWS additionally accept `--profile` and `--region`.
 
 ## `infralens scan`
 
@@ -43,12 +43,12 @@ dot -Tpng graph.dot -o graph.png
 Evaluates (or, more precisely, retrieves the findings evaluated at scan time for) a scan's exposure and topology rules.
 
 ```text
-infralens findings [--scan ID|latest] [--severity info|low|medium|high] [--format table|json] [--db PATH]
+infralens findings [--scan ID|latest] [--severity info|low|medium|high] [--fail-on info|low|medium|high] [--format table|json] [--db PATH]
 ```
 
 ```bash
 # CI gate: fail the pipeline if any high-severity finding exists
-infralens findings --severity high --format json | jq -e 'length == 0'
+infralens findings --severity high --fail-on high --format json
 ```
 
 Built-in rules: `open_security_group`, `public_s3_bucket`, `internet_exposed_instance`. See [internal/findings/rules.go](../internal/findings/rules.go).
@@ -86,4 +86,4 @@ Reserved as the future extension point for a local, read-only web viewer over st
 
 - Every command that reads scan data accepts `--scan latest` (the default) to mean "most recently started scan."
 - `--format json` output is stable, indented JSON intended for `jq`/scripting; it is the contract automation should depend on, not the table/text output.
-- Exit code is non-zero on any error (AWS call failure, unknown scan ID, bad flag). `findings --severity high` does **not** itself fail on findings — pipe its JSON output through `jq` (as above) to turn findings into a CI gate.
+- Exit code is non-zero on any error (AWS call failure, unknown scan ID, bad flag). `findings --fail-on <severity>` also exits non-zero when matching findings exist, so it can act as a CI gate without `jq`.

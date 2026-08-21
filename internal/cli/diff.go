@@ -20,6 +20,7 @@ func runDiff(ctx context.Context, args []string) error {
 	to := fs.String("to", "latest", `Comparison scan ID, or "latest"`)
 	format := fs.String("format", "table", "Output format: table or json")
 	dbPath := fs.String("db", "", "Path to the InfraLens SQLite database")
+	logLevel := fs.String("log-level", "", "Log level: debug, info, warn, or error")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -27,10 +28,11 @@ func runDiff(ctx context.Context, args []string) error {
 		return errors.New("--from is required")
 	}
 
-	cfg, err := config.Load(config.Config{DBPath: *dbPath})
+	cfg, logger, err := loadConfigWithLogger(config.Config{DBPath: *dbPath, LogLevel: *logLevel})
 	if err != nil {
 		return err
 	}
+	logger.Debugf("opening diff store at %s", cfg.DBPath)
 	store, err := sqlite.Open(cfg.DBPath)
 	if err != nil {
 		return err
@@ -45,6 +47,7 @@ func runDiff(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("resolve --to scan: %w", err)
 	}
+	logger.Infof("diffing scans %s -> %s", fromScan.ID, toScan.ID)
 
 	fromResources, err := store.LoadResources(ctx, fromScan.ID)
 	if err != nil {

@@ -18,14 +18,16 @@ func runGraph(ctx context.Context, args []string) error {
 	format := fs.String("format", "text", "Output format: text, json, or dot")
 	out := fs.String("out", "", "Write output to a file instead of stdout")
 	dbPath := fs.String("db", "", "Path to the InfraLens SQLite database")
+	logLevel := fs.String("log-level", "", "Log level: debug, info, warn, or error")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	cfg, err := config.Load(config.Config{DBPath: *dbPath})
+	cfg, logger, err := loadConfigWithLogger(config.Config{DBPath: *dbPath, LogLevel: *logLevel})
 	if err != nil {
 		return err
 	}
+	logger.Debugf("opening graph store at %s", cfg.DBPath)
 	store, err := sqlite.Open(cfg.DBPath)
 	if err != nil {
 		return err
@@ -36,6 +38,7 @@ func runGraph(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("resolve scan: %w", err)
 	}
+	logger.Infof("loading graph data for scan %s", scan.ID)
 	resources, err := store.LoadResources(ctx, scan.ID)
 	if err != nil {
 		return err

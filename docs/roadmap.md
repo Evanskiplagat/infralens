@@ -23,8 +23,8 @@ Not yet done, and required before Phase 1 can be considered verified: run `go mo
 - `--concurrency` for parallel per-region/per-service discovery.
 - Retry/backoff around AWS API throttling.
 - Partial-scan recovery: persist a `failed` scan with whatever was discovered before the error, instead of discarding it.
-- `infralens findings --fail-on high` (or similar) as a first-class CI gate, instead of requiring a `jq` pipeline.
-- Structured logging (`--log-level`, already resolved by `internal/config`) wired through discovery and storage.
+- Completed: `infralens findings --fail-on high` (or similar) as a first-class CI gate, instead of requiring a `jq` pipeline.
+- Completed: structured logging (`--log-level`, also configurable via `INFRALENS_LOG_LEVEL`) wired through discovery and storage-facing commands.
 
 ## Phase 4 — Storage flexibility
 
