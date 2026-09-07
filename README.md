@@ -1,12 +1,12 @@
 # InfraLens
 
-InfraLens is a CLI-first tool for AWS infrastructure discovery, relationship graphing, exposure findings, and scan-to-scan diffing. It runs as a single Go binary: point it at read-only AWS credentials, and it turns a fragmented account into a queryable graph of resources, relationships, and risk.
+InfraLens is a Go command-line tool for discovering AWS resources, mapping their relationships, reporting possible exposure risks, and comparing infrastructure scans over time.
 
-InfraLens is not a hosted web app or browser extension. It's built to run on a laptop, in CI/CD, or on a cron job — with structured output designed for scripting and automation first, human-readable tables second.
+It runs locally with read-only AWS credentials and stores scan data in SQLite. Output is available in formats suitable for terminal use, scripts, CI/CD pipelines, and graph visualisation.
 
 ## Why a CLI
 
-Infrastructure discovery is naturally a batch, credential-scoped, automatable operation — the kind of thing that belongs in a pipeline step or a terminal, not a hosted service with its own auth and uptime. A CLI keeps the trust boundary small (it runs with the credentials you already have, produces a local file, and does nothing else), and it composes: pipe `export --format json` into `jq`, wire `findings` into a CI gate, or diff two scans in a pull request check.
+The CLI runs within the caller's AWS credential scope and does not require a hosted service. Its structured output can be passed to tools such as `jq`, used in a CI check, or compared between scans.
 
 ## Target Capabilities
 
@@ -60,7 +60,7 @@ Scan history is stored locally in a SQLite file (`infralens.db` by default; over
 
 ## Status
 
-The Go module, package layout, and command surface described here are implemented in this repository. This development environment does not have a Go toolchain installed, so the code has not been compiled or tested here — before relying on it, run:
+The repository contains the Go module, package structure, and command surface described above. Validate a local checkout with:
 
 ```bash
 go mod tidy
