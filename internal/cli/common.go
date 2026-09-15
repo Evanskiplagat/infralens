@@ -49,7 +49,7 @@ func filterBySeverity(fs []findings.Finding, min findings.Severity) []findings.F
 	if !ok {
 		threshold = severityRank[findings.SeverityInfo]
 	}
-	var out []findings.Finding
+	out := make([]findings.Finding, 0)
 	for _, f := range fs {
 		if severityRank[f.Severity] >= threshold {
 			out = append(out, f)

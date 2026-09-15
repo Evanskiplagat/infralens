@@ -5,16 +5,19 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"slices"
 
 	"infralens/internal/config"
 	"infralens/internal/export"
 	"infralens/internal/findings"
+	"infralens/internal/resource"
 	"infralens/internal/storage/sqlite"
 )
 
 func runFindings(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("findings", flag.ContinueOnError)
 	scanID := fs.String("scan", "latest", `Scan ID to load, or "latest"`)
+	baselineID := fs.String("baseline", "", "Completed scan ID to compare against; include only new or worsened findings")
 	format := fs.String("format", "table", "Output format: table or json")
 	minSeverity := fs.String("severity", "low", "Minimum severity to include: info, low, medium, high")
 	failOn := fs.String("fail-on", "", "Exit non-zero if any finding at or above this severity exists: info, low, medium, high")
@@ -22,6 +25,12 @@ func runFindings(ctx context.Context, args []string) error {
 	logLevel := fs.String("log-level", "", "Log level: debug, info, warn, or error")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *format != "table" && *format != "json" {
+		return fmt.Errorf("unknown format %q (want table or json)", *format)
+	}
+	if *baselineID == "latest" {
+		return fmt.Errorf("--baseline requires an explicit scan ID")
 	}
 
 	threshold, err := parseSeverity(*minSeverity)
@@ -57,6 +66,21 @@ func runFindings(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if *baselineID != "" {
+		baseline, err := store.GetScan(ctx, *baselineID)
+		if err != nil {
+			return fmt.Errorf("resolve baseline scan: %w", err)
+		}
+		if err := validateBaseline(scan, baseline); err != nil {
+			return err
+		}
+		previous, err := store.LoadFindings(ctx, baseline.ID)
+		if err != nil {
+			return fmt.Errorf("load baseline findings: %w", err)
+		}
+		found = newOrWorsenedFindings(found, previous)
+	}
+	fail := shouldFailOnFindings(found, failThreshold)
 	found = filterBySeverity(found, threshold)
 
 	switch *format {
@@ -70,10 +94,51 @@ func runFindings(ctx context.Context, args []string) error {
 		return fmt.Errorf("unknown format %q (want table or json)", *format)
 	}
 
-	if shouldFailOnFindings(found, failThreshold) {
+	if fail {
 		return fmt.Errorf("findings at or above %s severity detected", failThreshold)
 	}
 	return nil
+}
+
+func validateBaseline(scan, baseline resource.Scan) error {
+	if scan.ID == baseline.ID {
+		return fmt.Errorf("baseline and target scan must be different")
+	}
+	if scan.Status != resource.ScanStatusComplete || baseline.Status != resource.ScanStatusComplete {
+		return fmt.Errorf("baseline comparison requires two completed scans")
+	}
+	if scan.AccountID != baseline.AccountID {
+		return fmt.Errorf("baseline and target scan must belong to the same AWS account")
+	}
+	regions := slices.Clone(scan.Regions)
+	baselineRegions := slices.Clone(baseline.Regions)
+	slices.Sort(regions)
+	slices.Sort(baselineRegions)
+	if !slices.Equal(slices.Compact(regions), slices.Compact(baselineRegions)) {
+		return fmt.Errorf("baseline and target scan must cover the same regions")
+	}
+	return nil
+}
+
+// Match by rule and resource, ignoring changes to human-readable descriptions.
+// Retain severity increases so a baseline cannot hide a worsening finding.
+func newOrWorsenedFindings(current, baseline []findings.Finding) []findings.Finding {
+	type key struct{ rule, resource string }
+	previous := make(map[key]int, len(baseline))
+	for _, f := range baseline {
+		k := key{f.RuleID, f.ResourceID}
+		rank := severityRank[f.Severity]
+		if old, exists := previous[k]; !exists || rank > old {
+			previous[k] = rank
+		}
+	}
+	out := make([]findings.Finding, 0)
+	for _, f := range current {
+		if rank, exists := previous[key{f.RuleID, f.ResourceID}]; !exists || severityRank[f.Severity] > rank {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 func printFindingsTable(scanID string, found []findings.Finding) {

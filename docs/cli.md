@@ -43,13 +43,20 @@ dot -Tpng graph.dot -o graph.png
 Evaluates (or, more precisely, retrieves the findings evaluated at scan time for) a scan's exposure and topology rules.
 
 ```text
-infralens findings [--scan ID|latest] [--severity info|low|medium|high] [--fail-on info|low|medium|high] [--format table|json] [--db PATH]
+infralens findings [--scan ID|latest] [--baseline ID] [--severity info|low|medium|high] [--fail-on info|low|medium|high] [--format table|json] [--db PATH]
 ```
 
 ```bash
 # CI gate: fail the pipeline if any high-severity finding exists
 infralens findings --severity high --fail-on high --format json
+
+# Fail only for new or worsened high-severity findings since a known scan
+infralens findings --baseline 20260801T090000Z --fail-on high --format json
 ```
+
+`--baseline` compares findings by rule ID and resource ID. Existing findings are omitted unless their severity increased; title and description changes alone do not count. Both scans must be complete, distinct, and cover the same AWS account and regions. The baseline must be an explicit scan ID, not `latest`.
+
+`--severity` filters displayed output only. `--fail-on` checks all findings selected by the baseline comparison (or all scan findings when no baseline is given), even if the display filter hides them. Empty JSON results are `[]`.
 
 Built-in rules: `open_security_group`, `public_s3_bucket`, `internet_exposed_instance`. See [internal/findings/rules.go](../internal/findings/rules.go).
 
