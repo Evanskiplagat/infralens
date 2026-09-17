@@ -30,13 +30,20 @@ infralens scans [--db PATH]
 Builds the resource graph for a scan and prints or exports it.
 
 ```text
-infralens graph [--scan ID|latest] [--format text|json|dot] [--out FILE] [--db PATH]
+infralens graph [--scan ID|latest] [--resource ID] [--depth N] [--format text|json|dot] [--out FILE] [--db PATH]
 ```
 
 ```bash
 infralens graph --scan latest --format dot --out graph.dot
 dot -Tpng graph.dot -o graph.png
+
+# Inspect an instance and resources up to two relationships away
+infralens graph --resource ec2_instance/i-123 --depth 2 --format json
 ```
+
+`--resource` accepts the normalized `ID` shown in JSON graph/export output. It selects that resource and its neighbors, following both incoming and outgoing relationships. `--depth` defaults to 1; use 0 to select only the resource. All relationships between selected resources are included with their original directions. This shows structural relationships, not proof of network reachability.
+
+Without `--resource`, the full graph is returned. An unknown resource, a negative depth, or `--depth` without `--resource` is an error. The selection applies to text, JSON, and DOT output.
 
 ## `infralens findings`
 
@@ -62,15 +69,22 @@ Built-in rules: `open_security_group`, `public_s3_bucket`, `internet_exposed_ins
 
 ## `infralens diff`
 
-Compares two scans' resources.
+Compares two scans' resources, with optional relationship comparison and a CI gate for infrastructure changes.
 
 ```text
-infralens diff --from ID [--to ID|latest] [--format table|json] [--db PATH]
+infralens diff --from ID [--to ID|latest] [--include-edges] [--fail-on-change] [--format table|json] [--out FILE] [--db PATH]
 ```
 
 ```bash
 infralens diff --from 20260801T090000Z --to latest --format json
+
+# Save a report and fail CI if resources or relationships changed
+infralens diff --from 20260801T090000Z --include-edges --fail-on-change --format json --out drift.json
 ```
+
+`--include-edges` reports added and removed relationships, including changes between otherwise unchanged resources. JSON retains the existing resource fields and adds an `Edges` object with `Added` and `Removed` arrays when this flag is set. Changing a relationship's type or endpoints appears as a removal and an addition.
+
+`--fail-on-change` exits non-zero after writing the report if resources were added, removed, or changed. Relationship changes also trigger this gate when `--include-edges` is enabled. With no changes, the command succeeds. `--out` saves either output format to a file; otherwise the report goes to stdout.
 
 ## `infralens export`
 

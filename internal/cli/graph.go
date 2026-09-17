@@ -15,12 +15,29 @@ import (
 func runGraph(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("graph", flag.ContinueOnError)
 	scanID := fs.String("scan", "latest", `Scan ID to load, or "latest"`)
+	resourceID := fs.String("resource", "", "Focus on a normalized resource ID (for example ec2_instance/i-123)")
+	depth := fs.Int("depth", 1, "Relationship hops to include around --resource (0 includes only that resource)")
 	format := fs.String("format", "text", "Output format: text, json, or dot")
 	out := fs.String("out", "", "Write output to a file instead of stdout")
 	dbPath := fs.String("db", "", "Path to the InfraLens SQLite database")
 	logLevel := fs.String("log-level", "", "Log level: debug, info, warn, or error")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *format != "text" && *format != "json" && *format != "dot" {
+		return fmt.Errorf("unknown format %q (want text, json, or dot)", *format)
+	}
+	if *depth < 0 {
+		return fmt.Errorf("--depth must be non-negative")
+	}
+	depthSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "depth" {
+			depthSet = true
+		}
+	})
+	if depthSet && *resourceID == "" {
+		return fmt.Errorf("--depth requires --resource")
 	}
 
 	cfg, logger, err := loadConfigWithLogger(config.Config{DBPath: *dbPath, LogLevel: *logLevel})
@@ -48,6 +65,13 @@ func runGraph(ctx context.Context, args []string) error {
 		return err
 	}
 	g := graph.Build(resources, edges)
+	if *resourceID != "" {
+		resources, edges, err = g.Neighborhood(*resourceID, *depth)
+		if err != nil {
+			return err
+		}
+		g = graph.Build(resources, edges)
+	}
 
 	w, closeFn, err := openOutput(*out)
 	if err != nil {

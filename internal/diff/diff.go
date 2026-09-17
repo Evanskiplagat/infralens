@@ -73,7 +73,7 @@ func CompareEdges(from, to []resource.Edge) EdgeDiff {
 	fromByID := indexEdgesByID(from)
 	toByID := indexEdgesByID(to)
 
-	var d EdgeDiff
+	d := EdgeDiff{Added: make([]resource.Edge, 0), Removed: make([]resource.Edge, 0)}
 	for id, e := range toByID {
 		if _, ok := fromByID[id]; !ok {
 			d.Added = append(d.Added, e)
