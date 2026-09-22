@@ -15,6 +15,7 @@ func TestParseSeverity(t *testing.T) {
 		{"low", findings.SeverityLow},
 		{"medium", findings.SeverityMedium},
 		{"high", findings.SeverityHigh},
+		{"critical", findings.SeverityCritical},
 	}
 
 	for _, tt := range tests {
@@ -29,7 +30,7 @@ func TestParseSeverity(t *testing.T) {
 }
 
 func TestParseSeverityRejectsUnknownValues(t *testing.T) {
-	if _, err := parseSeverity("critical"); err == nil {
+	if _, err := parseSeverity("urgent"); err == nil {
 		t.Fatal("parseSeverity should reject unknown values")
 	}
 }
@@ -48,5 +49,12 @@ func TestShouldFailOnFindings(t *testing.T) {
 	}
 	if shouldFailOnFindings(found[:1], findings.SeverityHigh) {
 		t.Fatal("low-severity finding should not trigger fail-on high")
+	}
+	if shouldFailOnFindings(found, findings.SeverityCritical) {
+		t.Fatal("a high finding should not trigger fail-on critical")
+	}
+	found = append(found, findings.Finding{Severity: findings.SeverityCritical})
+	if !shouldFailOnFindings(found, findings.SeverityCritical) {
+		t.Fatal("a critical finding should trigger fail-on critical")
 	}
 }

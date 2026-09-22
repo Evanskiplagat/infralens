@@ -48,7 +48,10 @@ func Normalize(accountID string, snap *awsdiscovery.Snapshot) ([]resource.Resour
 		resources = append(resources, resource.Resource{
 			ID: id, ProviderID: rt.ID, Kind: resource.KindRouteTable, Name: nameOrID(rt.Tags, rt.ID),
 			Region: rt.Region, AccountID: accountID, Tags: rt.Tags,
-			Attributes: map[string]any{resource.AttrHasIGWRoute: rt.HasIGWRoute},
+			Attributes: map[string]any{
+				resource.AttrHasIGWRoute:      rt.HasIGWRoute,
+				resource.AttrIsMainRouteTable: rt.IsMain,
+			},
 		})
 		edges = append(edges, resource.NewEdge(vpcID, id, resource.RelContains))
 		for _, subnetID := range rt.SubnetIDs {
@@ -77,21 +80,35 @@ func Normalize(accountID string, snap *awsdiscovery.Snapshot) ([]resource.Resour
 		resources = append(resources, resource.Resource{
 			ID: id, ProviderID: sg.ID, Kind: resource.KindSecurityGroup, Name: nameOrID(sg.Tags, sg.Name),
 			Region: sg.Region, AccountID: accountID, Tags: sg.Tags,
-			Attributes: map[string]any{resource.AttrIngressRules: rules},
+			Attributes: map[string]any{
+				resource.AttrIngressRules: rules,
+				resource.AttrGroupName:    sg.Name,
+			},
 		})
 		edges = append(edges, resource.NewEdge(vpcID, id, resource.RelContains))
+		for _, refID := range sg.ReferencedGroupIDs {
+			edges = append(edges, resource.NewEdge(id, resource.NewID(resource.KindSecurityGroup, refID), resource.RelReferences))
+		}
 	}
 
 	for _, in := range snap.Instances {
 		id := resource.NewID(resource.KindEC2Instance, in.ID)
+		attrs := map[string]any{
+			resource.AttrPublicIP:           in.PublicIP,
+			resource.AttrHasPublicIP:        in.PublicIP != "",
+			resource.AttrState:              in.State,
+			resource.AttrInstanceType:       in.InstanceType,
+			resource.AttrIAMInstanceProfile: in.IAMInstanceProfileARN,
+		}
+		// Only record the IMDS setting when the API reported one, so rules
+		// can tell "IMDSv1 allowed" apart from "unknown".
+		if in.HTTPTokens != "" {
+			attrs[resource.AttrIMDSv2Required] = in.HTTPTokens == "required"
+		}
 		resources = append(resources, resource.Resource{
 			ID: id, ProviderID: in.ID, Kind: resource.KindEC2Instance, Name: nameOrID(in.Tags, in.ID),
 			Region: in.Region, AccountID: accountID, Tags: in.Tags,
-			Attributes: map[string]any{
-				resource.AttrPublicIP:    in.PublicIP,
-				resource.AttrHasPublicIP: in.PublicIP != "",
-				resource.AttrState:       in.State,
-			},
+			Attributes: attrs,
 		})
 		if in.SubnetID != "" {
 			edges = append(edges, resource.NewEdge(resource.NewID(resource.KindSubnet, in.SubnetID), id, resource.RelContains))
@@ -101,12 +118,32 @@ func Normalize(accountID string, snap *awsdiscovery.Snapshot) ([]resource.Resour
 		}
 	}
 
+	for _, v := range snap.Volumes {
+		id := resource.NewID(resource.KindEBSVolume, v.ID)
+		resources = append(resources, resource.Resource{
+			ID: id, ProviderID: v.ID, Kind: resource.KindEBSVolume, Name: nameOrID(v.Tags, v.ID),
+			Region: v.Region, AccountID: accountID, Tags: v.Tags,
+			Attributes: map[string]any{
+				resource.AttrEncrypted:  v.Encrypted,
+				resource.AttrSizeGiB:    v.SizeGiB,
+				resource.AttrVolumeType: v.VolumeType,
+			},
+		})
+		for _, instanceID := range v.AttachedInstanceIDs {
+			edges = append(edges, resource.NewEdge(id, resource.NewID(resource.KindEC2Instance, instanceID), resource.RelAttachedTo))
+		}
+	}
+
 	for _, b := range snap.S3Buckets {
 		id := resource.NewID(resource.KindS3Bucket, b.Name)
+		attrs := map[string]any{resource.AttrBucketPublic: b.PublicAccess}
+		if b.BlockPublicAccess != nil {
+			attrs[resource.AttrPublicAccessBlock] = *b.BlockPublicAccess
+		}
 		resources = append(resources, resource.Resource{
 			ID: id, ProviderID: b.Name, Kind: resource.KindS3Bucket, Name: b.Name,
 			Region: b.Region, AccountID: accountID, Tags: b.Tags,
-			Attributes: map[string]any{resource.AttrBucketPublic: b.PublicAccess},
+			Attributes: attrs,
 		})
 	}
 

@@ -11,6 +11,11 @@ import (
 	"os"
 )
 
+// Version is the InfraLens release. It is stamped into reports so results
+// can be traced to a build; release builds override it with
+// -ldflags "-X infralens/internal/cli.Version=v1.2.3".
+var Version = "dev"
+
 type command struct {
 	name  string
 	short string
@@ -21,10 +26,12 @@ func commands() []command {
 	return []command{
 		{"scan", "Discover AWS resources and persist a new scan", runScan},
 		{"graph", "Build and display the resource graph for a scan", runGraph},
-		{"findings", "Evaluate exposure and topology findings for a scan", runFindings},
+		{"findings", "Report exposure findings as a table, JSON, SARIF, or Markdown", runFindings},
 		{"diff", "Compare two scans", runDiff},
 		{"export", "Export a scan as JSON, CSV, or DOT", runExport},
 		{"scans", "List stored scans", runScans},
+		{"rules", "List the built-in findings rules and how to fix them", runRules},
+		{"version", "Print the InfraLens version", runVersion},
 		{"serve", "(planned) Serve a local read-only viewer", runServe},
 	}
 }

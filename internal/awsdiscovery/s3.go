@@ -2,6 +2,7 @@ package awsdiscovery
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -14,6 +15,10 @@ import (
 type S3Discoverer struct{}
 
 func (S3Discoverer) Name() string { return "s3" }
+
+// Global marks S3 bucket listing as account-wide, so a multi-region scan
+// runs it once rather than once per region.
+func (S3Discoverer) Global() bool { return true }
 
 func (S3Discoverer) Discover(ctx context.Context, opts Options, snap *Snapshot) error {
 	cfg, err := LoadAWSConfig(ctx, opts)
@@ -33,8 +38,9 @@ func (S3Discoverer) Discover(ctx context.Context, opts Options, snap *Snapshot) 
 			continue
 		}
 		snap.S3Buckets = append(snap.S3Buckets, S3Bucket{
-			Name:         name,
-			PublicAccess: bucketIsPublic(ctx, client, name),
+			Name:              name,
+			PublicAccess:      bucketIsPublic(ctx, client, name),
+			BlockPublicAccess: bucketBlocksPublicAccess(ctx, client, name),
 		})
 	}
 	return nil
@@ -52,4 +58,31 @@ func bucketIsPublic(ctx context.Context, client *s3.Client, bucket string) bool 
 		return false
 	}
 	return aws.ToBool(status.PolicyStatus.IsPublic)
+}
+
+// bucketBlocksPublicAccess reports whether all four S3 Block Public Access
+// settings are enabled on the bucket. It returns nil when the answer cannot
+// be determined (for example, the caller lacks s3:GetBucketPublicAccessBlock),
+// so findings never treat "unknown" as "unprotected". A bucket with no
+// configuration at all is reported as false.
+func bucketBlocksPublicAccess(ctx context.Context, client *s3.Client, bucket string) *bool {
+	out, err := client.GetPublicAccessBlock(ctx, &s3.GetPublicAccessBlockInput{
+		Bucket: aws.String(bucket),
+	})
+	if err != nil {
+		var coded interface{ ErrorCode() string }
+		if errors.As(err, &coded) && coded.ErrorCode() == "NoSuchPublicAccessBlockConfiguration" {
+			return aws.Bool(false)
+		}
+		return nil
+	}
+	cfg := out.PublicAccessBlockConfiguration
+	if cfg == nil {
+		return aws.Bool(false)
+	}
+	all := aws.ToBool(cfg.BlockPublicAcls) &&
+		aws.ToBool(cfg.BlockPublicPolicy) &&
+		aws.ToBool(cfg.IgnorePublicAcls) &&
+		aws.ToBool(cfg.RestrictPublicBuckets)
+	return aws.Bool(all)
 }

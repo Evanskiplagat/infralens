@@ -3,6 +3,7 @@ package awsdiscovery
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -24,16 +25,30 @@ func (EC2Discoverer) Discover(ctx context.Context, opts Options, snap *Snapshot)
 	client := ec2.NewFromConfig(cfg)
 	region := cfg.Region
 
-	steps := []func(context.Context, *ec2.Client, string, *Snapshot) error{
-		discoverVPCs,
-		discoverSubnets,
-		discoverRouteTables,
-		discoverInternetGateways,
-		discoverSecurityGroups,
-		discoverInstances,
+	// Optional steps cover data added after InfraLens's original permission
+	// set. When the caller's role predates them, the step is skipped with a
+	// warning instead of failing the whole region and discarding the VPCs,
+	// instances and security groups that were readable.
+	steps := []struct {
+		name     string
+		run      func(context.Context, *ec2.Client, string, *Snapshot) error
+		optional bool
+	}{
+		{"vpcs", discoverVPCs, false},
+		{"subnets", discoverSubnets, false},
+		{"route tables", discoverRouteTables, false},
+		{"internet gateways", discoverInternetGateways, false},
+		{"security groups", discoverSecurityGroups, false},
+		{"instances", discoverInstances, false},
+		{"volumes", discoverVolumes, true},
 	}
 	for _, step := range steps {
-		if err := step(ctx, client, region, snap); err != nil {
+		if err := step.run(ctx, client, region, snap); err != nil {
+			if step.optional && IsAccessDenied(err) {
+				snap.Warnings = append(snap.Warnings, fmt.Sprintf(
+					"ec2 in %s: skipped %s because access was denied (%v); grant the permission to include them", region, step.name, err))
+				continue
+			}
 			return err
 		}
 	}
@@ -106,6 +121,12 @@ func discoverRouteTables(ctx context.Context, client *ec2.Client, region string,
 					subnetIDs = append(subnetIDs, *assoc.SubnetId)
 				}
 			}
+			isMain := false
+			for _, assoc := range rt.Associations {
+				if aws.ToBool(assoc.Main) {
+					isMain = true
+				}
+			}
 			hasIGWRoute := false
 			for _, route := range rt.Routes {
 				if gw := aws.ToString(route.GatewayId); strings.HasPrefix(gw, "igw-") {
@@ -118,6 +139,7 @@ func discoverRouteTables(ctx context.Context, client *ec2.Client, region string,
 				VPCID:       aws.ToString(rt.VpcId),
 				SubnetIDs:   subnetIDs,
 				HasIGWRoute: hasIGWRoute,
+				IsMain:      isMain,
 				Tags:        tagsToMap(rt.Tags),
 				Region:      region,
 			})
@@ -160,7 +182,14 @@ func discoverSecurityGroups(ctx context.Context, client *ec2.Client, region stri
 		}
 		for _, sg := range page.SecurityGroups {
 			var ingress []SecurityGroupRule
+			var referenced []string
 			for _, perm := range sg.IpPermissions {
+				for _, pair := range perm.UserIdGroupPairs {
+					ref := aws.ToString(pair.GroupId)
+					if ref != "" && ref != aws.ToString(sg.GroupId) && !slices.Contains(referenced, ref) {
+						referenced = append(referenced, ref)
+					}
+				}
 				for _, r := range perm.IpRanges {
 					ingress = append(ingress, SecurityGroupRule{
 						Protocol: aws.ToString(perm.IpProtocol),
@@ -179,12 +208,13 @@ func discoverSecurityGroups(ctx context.Context, client *ec2.Client, region stri
 				}
 			}
 			snap.SecurityGroups = append(snap.SecurityGroups, SecurityGroup{
-				ID:      aws.ToString(sg.GroupId),
-				VPCID:   aws.ToString(sg.VpcId),
-				Name:    aws.ToString(sg.GroupName),
-				Ingress: ingress,
-				Tags:    tagsToMap(sg.Tags),
-				Region:  region,
+				ID:                 aws.ToString(sg.GroupId),
+				VPCID:              aws.ToString(sg.VpcId),
+				Name:               aws.ToString(sg.GroupName),
+				Ingress:            ingress,
+				ReferencedGroupIDs: referenced,
+				Tags:               tagsToMap(sg.Tags),
+				Region:             region,
 			})
 		}
 	}
@@ -210,18 +240,57 @@ func discoverInstances(ctx context.Context, client *ec2.Client, region string, s
 				if inst.State != nil {
 					state = string(inst.State.Name)
 				}
+				httpTokens := ""
+				if inst.MetadataOptions != nil {
+					httpTokens = string(inst.MetadataOptions.HttpTokens)
+				}
+				profileARN := ""
+				if inst.IamInstanceProfile != nil {
+					profileARN = aws.ToString(inst.IamInstanceProfile.Arn)
+				}
 				snap.Instances = append(snap.Instances, Instance{
-					ID:               aws.ToString(inst.InstanceId),
-					VPCID:            aws.ToString(inst.VpcId),
-					SubnetID:         aws.ToString(inst.SubnetId),
-					SecurityGroupIDs: sgIDs,
-					PublicIP:         aws.ToString(inst.PublicIpAddress),
-					PrivateIP:        aws.ToString(inst.PrivateIpAddress),
-					State:            state,
-					Tags:             tagsToMap(inst.Tags),
-					Region:           region,
+					InstanceType:          string(inst.InstanceType),
+					IAMInstanceProfileARN: profileARN,
+					HTTPTokens:            httpTokens,
+					ID:                    aws.ToString(inst.InstanceId),
+					VPCID:                 aws.ToString(inst.VpcId),
+					SubnetID:              aws.ToString(inst.SubnetId),
+					SecurityGroupIDs:      sgIDs,
+					PublicIP:              aws.ToString(inst.PublicIpAddress),
+					PrivateIP:             aws.ToString(inst.PrivateIpAddress),
+					State:                 state,
+					Tags:                  tagsToMap(inst.Tags),
+					Region:                region,
 				})
 			}
+		}
+	}
+	return nil
+}
+
+func discoverVolumes(ctx context.Context, client *ec2.Client, region string, snap *Snapshot) error {
+	paginator := ec2.NewDescribeVolumesPaginator(client, &ec2.DescribeVolumesInput{})
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("describe volumes: %w", err)
+		}
+		for _, v := range page.Volumes {
+			var attached []string
+			for _, a := range v.Attachments {
+				if a.InstanceId != nil {
+					attached = append(attached, *a.InstanceId)
+				}
+			}
+			snap.Volumes = append(snap.Volumes, Volume{
+				ID:                  aws.ToString(v.VolumeId),
+				Encrypted:           aws.ToBool(v.Encrypted),
+				SizeGiB:             aws.ToInt32(v.Size),
+				VolumeType:          string(v.VolumeType),
+				AttachedInstanceIDs: attached,
+				Tags:                tagsToMap(v.Tags),
+				Region:              region,
+			})
 		}
 	}
 	return nil

@@ -1,0 +1,59 @@
+# Example: run InfraLens on a schedule, publish results, and gate on new risk.
+#
+# Copy this file to .github/workflows/ in the repository that owns your AWS
+# account's guardrails. It is illustrative: adjust the role ARN, regions, and
+# thresholds to your environment.
+#
+# Requirements:
+#   - An IAM role InfraLens can assume through GitHub's OIDC provider, limited
+#     to the read-only actions listed in docs/security.md.
+#   - An infralens.policy.json in the repository (see examples/).
+name: infralens-scan
+
+on:
+  schedule:
+    - cron: "0 6 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # OIDC token for aws-actions/configure-aws-credentials
+  security-events: write # upload SARIF to code scanning
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/infralens-readonly
+          aws-region: us-east-1
+
+      - name: Build InfraLens
+        run: go build -ldflags "-X infralens/internal/cli.Version=${GITHUB_SHA::7}" -o bin/infralens ./cmd/infralens
+
+      # Regions are scanned in parallel. A region that fails leaves a partial
+      # scan; the step fails unless --allow-partial is passed.
+      - name: Scan
+        run: ./bin/infralens scan --regions us-east-1,eu-west-1 --concurrency 4
+
+      - name: Write SARIF
+        run: ./bin/infralens findings --policy infralens.policy.json --format sarif --out infralens.sarif
+
+      - name: Upload to code scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: infralens.sarif
+
+      - name: Job summary
+        run: ./bin/infralens findings --policy infralens.policy.json --format markdown >> "$GITHUB_STEP_SUMMARY"
+
+      # Last, so the report and upload above still happen when this fails.
+      - name: Gate on high and critical findings
+        run: ./bin/infralens findings --policy infralens.policy.json --fail-on high

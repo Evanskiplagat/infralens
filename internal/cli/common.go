@@ -35,12 +35,15 @@ func openOutput(path string) (io.Writer, func() error, error) {
 	return f, f.Close, nil
 }
 
-var severityRank = map[findings.Severity]int{
-	findings.SeverityInfo:   0,
-	findings.SeverityLow:    1,
-	findings.SeverityMedium: 2,
-	findings.SeverityHigh:   3,
-}
+// severityRank is derived from the findings package so the CLI can never
+// disagree with the rules about what "at or above" means.
+var severityRank = func() map[findings.Severity]int {
+	ranks := make(map[findings.Severity]int)
+	for _, s := range findings.AllSeverities() {
+		ranks[s] = s.Rank()
+	}
+	return ranks
+}()
 
 // filterBySeverity keeps findings at or above min. An unrecognized min
 // value is treated as "info" (no filtering).
@@ -61,7 +64,7 @@ func filterBySeverity(fs []findings.Finding, min findings.Severity) []findings.F
 func parseSeverity(raw string) (findings.Severity, error) {
 	severity := findings.Severity(raw)
 	if _, ok := severityRank[severity]; !ok {
-		return "", fmt.Errorf("unknown severity %q (want info, low, medium, or high)", raw)
+		return "", fmt.Errorf("unknown severity %q (want info, low, medium, high, or critical)", raw)
 	}
 	return severity, nil
 }

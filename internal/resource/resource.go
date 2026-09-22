@@ -11,13 +11,14 @@ import "fmt"
 type Kind string
 
 const (
-	KindVPC              Kind = "vpc"
-	KindSubnet           Kind = "subnet"
-	KindRouteTable       Kind = "route_table"
-	KindInternetGateway  Kind = "internet_gateway"
-	KindSecurityGroup    Kind = "security_group"
-	KindEC2Instance      Kind = "ec2_instance"
-	KindS3Bucket         Kind = "s3_bucket"
+	KindVPC             Kind = "vpc"
+	KindSubnet          Kind = "subnet"
+	KindRouteTable      Kind = "route_table"
+	KindInternetGateway Kind = "internet_gateway"
+	KindSecurityGroup   Kind = "security_group"
+	KindEC2Instance     Kind = "ec2_instance"
+	KindS3Bucket        Kind = "s3_bucket"
+	KindEBSVolume       Kind = "ebs_volume"
 )
 
 // Resource is a single normalized piece of AWS infrastructure discovered
@@ -53,6 +54,9 @@ const (
 	RelAttachedTo RelationType = "attached_to"
 	// RelRoutesTo models routing, e.g. RouteTable -> Subnet.
 	RelRoutesTo RelationType = "routes_to"
+	// RelReferences models a rule-level reference, e.g. a SecurityGroup
+	// whose ingress rules name another SecurityGroup as a source.
+	RelReferences RelationType = "references"
 )
 
 // Edge is a directed relationship between two resources, identified by

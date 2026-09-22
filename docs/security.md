@@ -21,10 +21,14 @@ ec2:DescribeRouteTables
 ec2:DescribeInternetGateways
 ec2:DescribeSecurityGroups
 ec2:DescribeInstances
+ec2:DescribeVolumes
 s3:ListAllMyBuckets
 s3:GetBucketPolicyStatus
+s3:GetBucketPublicAccessBlock
 sts:GetCallerIdentity
 ```
+
+If a permission is missing, InfraLens degrades rather than guessing: an S3 bucket whose Block Public Access settings cannot be read is treated as "unknown" and produces no Block Public Access finding, and if `ec2:DescribeVolumes` is denied, volume discovery is skipped with a logged warning while the rest of the region is scanned normally, so a role that predates that permission keeps working. A required call that is denied (for example `ec2:DescribeInstances` in one region) fails that task, and the scan is saved as `partial` instead of silently omitting data. Denied and validation errors are never retried.
 
 `terraform/` holds (or will hold, per the roadmap) an IAM role module scoped to exactly this permission set, for accounts that want to grant InfraLens a dedicated read-only role rather than reusing an operator's credentials.
 

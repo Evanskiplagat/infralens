@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "disabled_rules": [
+    "unused_security_group"
+  ],
+  "severity_overrides": {
+    "default_vpc_in_use": "info"
+  },
+  "suppressions": [
+    {
+      "rule_id": "public_s3_bucket",
+      "resource": "s3_bucket/marketing-site-*",
+      "reason": "Public static website; content reviewed by the security team",
+      "owner": "platform-team",
+      "expires": "2027-03-31"
+    },
+    {
+      "rule_id": "open_security_group",
+      "resource": "security_group/sg-0123456789abcdef0",
+      "reason": "Public HTTPS load balancer; ingress on 443 is intentional",
+      "owner": "web-team",
+      "expires": "2026-12-31"
+    }
+  ]
+}

@@ -16,6 +16,32 @@ const (
 	AttrHasPublicIP      = "has_public_ip"
 	AttrState            = "state"
 	AttrBucketPublic     = "bucket_public"
+
+	// AttrGroupName is a security group's GroupName (the Name tag, when
+	// present, is what Resource.Name carries instead).
+	AttrGroupName = "group_name"
+	// AttrIsMainRouteTable marks a VPC's main route table, which governs
+	// every subnet without an explicit route table association.
+	AttrIsMainRouteTable = "is_main_route_table"
+	// AttrInstanceType is the EC2 instance type, e.g. "t3.micro".
+	AttrInstanceType = "instance_type"
+	// AttrIAMInstanceProfile is the ARN of the instance profile attached
+	// to an instance, or "" when none is attached.
+	AttrIAMInstanceProfile = "iam_instance_profile"
+	// AttrIMDSv2Required is true when the instance metadata service only
+	// accepts session-token (IMDSv2) requests. It is absent when discovery
+	// could not determine the setting, so rules never guess.
+	AttrIMDSv2Required = "imds_v2_required"
+	// AttrEncrypted reports whether an EBS volume is encrypted.
+	AttrEncrypted = "encrypted"
+	// AttrSizeGiB is a volume's size in GiB.
+	AttrSizeGiB = "size_gib"
+	// AttrVolumeType is an EBS volume type, e.g. "gp3".
+	AttrVolumeType = "volume_type"
+	// AttrPublicAccessBlock is true when all four S3 Block Public Access
+	// settings are enabled on the bucket. It is absent when discovery
+	// could not determine the setting (for example, access denied).
+	AttrPublicAccessBlock = "public_access_block"
 )
 
 // SGRule is a single normalized security group ingress rule.

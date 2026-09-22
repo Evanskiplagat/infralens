@@ -20,7 +20,9 @@ internal/resource     shared domain types: Resource, Edge, Scan
 internal/awsdiscovery AWS SDK calls (read-only), Discoverer interface, raw types
 internal/normalize    raw awsdiscovery.Snapshot -> []resource.Resource, []resource.Edge
 internal/graph        adjacency index over resources/edges + traversal
-internal/findings     Rule interface + built-in exposure/topology rules
+internal/findings     Rule interface, rule catalog, built-in rules, internet-path analysis
+internal/policy       Policy files: disabled rules, severity overrides, expiring waivers
+internal/report       SARIF 2.1.0 and Markdown renderers
 internal/storage       Store interface
 internal/storage/sqlite SQLite implementation of Store
 internal/export        JSON, CSV, DOT serializers
@@ -44,9 +46,28 @@ flowchart LR
 1. `infralens scan` resolves AWS credentials via the standard SDK chain (profile, environment, assumed role, or instance role) and calls read-only discovery APIs for each supported service.
 2. `normalize` maps raw API responses into `resource.Resource` and `resource.Edge` values, including structural edges (VPC contains Subnet, Instance is member-of SecurityGroup, RouteTable routes-to Subnet, VPC attached-to InternetGateway).
 3. `graph.Build` indexes resources and edges for traversal.
-4. `findings.Run` evaluates rules against the graph (open security groups, public S3 buckets, internet-reachable instances) and produces `Finding` records.
+4. `findings.Run` evaluates every built-in rule against the graph and produces `Finding` records, ordered most severe first so output is stable. See [rules.md](rules.md).
 5. `storage.Store` persists the scan, its resources, edges, and findings to SQLite, keyed by a scan ID.
 6. `graph`, `findings`, `diff`, and `export` commands operate on stored scans after the fact — they don't require AWS credentials or network access, only the local database.
+
+## Discovery orchestration
+
+`awsdiscovery.Collect` expands the enabled discoverers and the requested regions into a plan of independent tasks: one per (discoverer, region), except that account-wide services such as S3 (which implement the `Global` interface) appear once. Tasks run with bounded concurrency and each fills its own `Snapshot`, so retries never duplicate data and there is no shared mutable state. Failed attempts are retried with exponential backoff and jitter when the error looks like throttling or a transient fault (matched through the `ErrorCode()` method AWS SDK errors implement, so this package needs no SDK error types). After all tasks finish, snapshots are merged in plan order, which makes a scan independent of scheduling.
+
+A task that ultimately fails is recorded as a `Failure` while the rest carry on. The CLI stores the outcome as `complete`, `partial` (some tasks failed) or `failed` (none succeeded). Optional data that a role may not be permitted to read (EBS volumes) is skipped with a warning rather than failing its whole region.
+
+## Findings analysis
+
+Rules are pure functions over the graph, so they need no AWS access. Two ideas keep them honest:
+
+- **Topology, not just attributes.** `findings.InternetPathFor` walks `subnet -contains-> instance`, `route table -routes_to-> subnet` (or the VPC's main route table when a subnet has no explicit association) and `vpc -attached_to-> internet gateway`. The result is one of *internet route*, *no internet route*, or *unknown*, and rules use it to raise or lower severity and to print the evidence.
+- **Unknown is not safe.** Discovery is best-effort. Attributes that could not be determined (IMDS setting, S3 Block Public Access) are left absent rather than defaulted, and rules skip them instead of guessing. Missing route data keeps a finding at its base severity.
+
+`RuleInfo` (title, description, remediation, references, tags) lives with each rule rather than on each `Finding`, so stored scans stay small and guidance can improve without rewriting history. `docs/rules.md` is checked against the catalog by a test, so the two cannot drift.
+
+## Policy and reporting
+
+`policy` and `report` sit at the edge of the pipeline and operate only on stored findings. A policy is applied when findings are reported, never when a scan is stored, so the same scan can be evaluated under different policies and no information is lost. `report` renders SARIF and Markdown from findings plus the rule catalog, with no dependency on storage or AWS.
 
 ## Storage
 

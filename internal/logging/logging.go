@@ -25,10 +25,12 @@ var levelNames = map[string]Level{
 	"error": LevelError,
 }
 
-// Logger emits structured-enough stderr log lines for CLI operations.
+// Logger emits structured-enough stderr log lines for CLI operations. It is
+// safe to copy and to use from several goroutines at once: copies share one
+// mutex, so concurrent discovery tasks cannot interleave partial lines.
 type Logger struct {
 	min Level
-	mu  sync.Mutex
+	mu  *sync.Mutex
 }
 
 // New returns a logger for level. An empty level defaults to info.
@@ -40,7 +42,7 @@ func New(level string) (Logger, error) {
 	if !ok {
 		return Logger{}, fmt.Errorf("unknown log level %q (want debug, info, warn, or error)", level)
 	}
-	return Logger{min: min}, nil
+	return Logger{min: min, mu: &sync.Mutex{}}, nil
 }
 
 // Debugf logs a debug message.
@@ -68,8 +70,10 @@ func (l Logger) logf(level Level, format string, args ...any) {
 		return
 	}
 
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	if l.mu != nil { // the zero Logger has no mutex and is still usable
+		l.mu.Lock()
+		defer l.mu.Unlock()
+	}
 
 	name := "info"
 	for k, v := range levelNames {
